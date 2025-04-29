@@ -126,7 +126,7 @@ class RealTimePlot(QObject):
 
         # Open the serial port
         self._ser = serial.Serial(port, baud_rate)
-        self._data_packet = bytearray(24)
+        self._data_packet = bytearray(256) # Maximum size of one message packet.
 
         # Create the PyQtGraph window
         self._win = pg.GraphicsLayoutWidget(show=True)
@@ -223,34 +223,61 @@ class RealTimePlot(QObject):
         -------
         Tuple[Optional[int], List[float]]
             Current time and a list of float values each representing data values.
+
+        | Name  | Field     | Data Type | Size (bytes) | Description                                                         |
+        | ----  | --------- | --------- | ------------ | ------------------------------------------------------------------- |
+        | type  | Log Type  | uint8_t   | 1            | The type of log entry (e.g., INFO, DATA, etc.). See `LogType` enum. |
+        | time  | Timestamp | uint32_t  | 4            | Milliseconds since the device started.                              |
+        | size  | Data Size | size_t    | 4            | The size of the subsequent data payload in bytes.                   |
+        | data  | Data      | double[]  | Data Size    | The actual binary data payload. {Number of Sensors} X 8 bytes.      |
+
         """
         count = 0
         while True:
             data = None, []
             if self._ser.in_waiting > 0:
                 count += 1
-                self._ser.readinto(self._data_packet)
-                # print(self._data_packet)
-                timeStamp = struct.unpack('I', self._data_packet[0:4])[0] # unit: ms
-                press1Bar = struct.unpack('f', self._data_packet[4:8])[0] # unit: bar
-                press2Bar = struct.unpack('f', self._data_packet[8:12])[0] # unit: bar
-                fm_gps = struct.unpack('f', self._data_packet[12:16])[0] # unit: g/s
-                temp1C = struct.unpack('f', self._data_packet[16:20])[0] # unit: degC
-                temp2C = struct.unpack('f', self._data_packet[20:24])[0] # unit: degC
+                
+                # read 9byte header
+                self._ser.readinto(memoryview(self._data_packet)[:9])
 
+                # print(self._data_packet)
+                # timeStamp = struct.unpack('I', self._data_packet[0:4])[0] # unit: ms
+                # press1Bar = struct.unpack('f', self._data_packet[4:8])[0] # unit: bar
+                # press2Bar = struct.unpack('f', self._data_packet[8:12])[0] # unit: bar
+                # fm_gps = struct.unpack('f', self._data_packet[12:16])[0] # unit: g/s
+                # temp1C = struct.unpack('f', self._data_packet[16:20])[0] # unit: degC
+                # temp2C = struct.unpack('f', self._data_packet[20:24])[0] # unit: degC
                 # values = line.decode().strip().split(sep)
-                raw_data = [timeStamp, press1Bar, press2Bar, fm_gps, temp1C, temp2C]
+                # raw_data = [timeStamp, press1Bar, press2Bar, fm_gps, temp1C, temp2C]
+
+                # < : little endian / >: big endian (with no padding)
+                # padding added before size change
+                type, time, size = struct.unpack('<BII', self._data_packet[0:9])
+                if type not in (0,1,2,3):
+                    raise Exception("SerialError")
+                if type == 2:
+                    raise Exception("LogError")
+
+                # read data after header
+                self._ser.readinto(memoryview(self._data_packet)[9:9+size])
+
+                # formatstr: 'ddd...'
+                size_d = size//8
+                formatstr = 'd'*size_d
+                raw_data = struct.unpack(formatstr, self._data_packet[9:9+size])
+
                 if self._time_from_serial:
-                    data = raw_data[0], raw_data[1:]
+                    data = time, raw_data
                 else:
                     self._time += self._update_rate
-                    data = self._time, raw_data
+                    data = self._time, raw_data # or time + raw_data
 
                 # Write value to CSV file.
                 if self._write_to_file:
                     self.__write_to_csv(raw_data)
 
-                if count == self._update_rate // self._sensor_rate:
+                if count >= self._update_rate // self._sensor_rate:
                     self.data_sent.emit(data)
                     count = 0
 
@@ -277,6 +304,7 @@ class RealTimePlot(QObject):
 
 
 if __name__ == "__main__":
+
     # Test code. Reads 6 values from the serial and plot each data.
     # Modify the parameters of the `RealtimePlot` to fit your project.
     datas = [
