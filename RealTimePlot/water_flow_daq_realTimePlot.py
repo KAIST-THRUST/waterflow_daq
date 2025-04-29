@@ -237,7 +237,10 @@ class RealTimePlot(QObject):
             data = None, []
             if self._ser.in_waiting > 0:
                 count += 1
-                self._ser.readinto(self._data_packet)
+                
+                # read 9byte header
+                self._ser.readinto(memoryview(self._data_packet)[:9])
+
                 # print(self._data_packet)
                 # timeStamp = struct.unpack('I', self._data_packet[0:4])[0] # unit: ms
                 # press1Bar = struct.unpack('f', self._data_packet[4:8])[0] # unit: bar
@@ -245,18 +248,22 @@ class RealTimePlot(QObject):
                 # fm_gps = struct.unpack('f', self._data_packet[12:16])[0] # unit: g/s
                 # temp1C = struct.unpack('f', self._data_packet[16:20])[0] # unit: degC
                 # temp2C = struct.unpack('f', self._data_packet[20:24])[0] # unit: degC
-
                 # values = line.decode().strip().split(sep)
                 # raw_data = [timeStamp, press1Bar, press2Bar, fm_gps, temp1C, temp2C]
 
                 # < : little endian / >: big endian (with no padding)
                 # padding added before size change
                 type, time, size = struct.unpack('<BII', self._data_packet[0:9])
+                if type not in (0,1,2,3):
+                    raise Exception("SerialError")
+                if type == 2:
+                    raise Exception("LogError")
 
-                # size of doubles
-                size_d = size//8
+                # read data after header
+                self._ser.readinto(memoryview(self._data_packet)[9:9+size])
 
                 # formatstr: 'ddd...'
+                size_d = size//8
                 formatstr = 'd'*size_d
                 raw_data = struct.unpack(formatstr, self._data_packet[9:9+size])
 
