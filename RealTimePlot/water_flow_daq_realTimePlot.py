@@ -126,7 +126,7 @@ class RealTimePlot(QObject):
 
         # Open the serial port
         self._ser = serial.Serial(port, baud_rate)
-        self._data_packet = bytearray(100)
+        self._data_packet = bytearray(256) # Maximum size of one message packet.
 
         # Create the PyQtGraph window
         self._win = pg.GraphicsLayoutWidget(show=True)
