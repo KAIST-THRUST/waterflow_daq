@@ -265,7 +265,7 @@ class RealTimePlot(QObject):
                 # formatstr: 'ddd...'
                 size_d = size//8
                 formatstr = 'd'*size_d
-                raw_data = struct.unpack(formatstr, self._data_packet[9:9+size])
+                raw_data = list(struct.unpack(formatstr, self._data_packet[9:9+size]))
 
                 if self._time_from_serial:
                     data = time, raw_data
@@ -275,7 +275,7 @@ class RealTimePlot(QObject):
 
                 # Write value to CSV file.
                 if self._write_to_file:
-                    self.__write_to_csv(raw_data)
+                    self.__write_to_csv([time] + raw_data)
 
                 if count >= self._update_rate // self._sensor_rate:
                     self.data_sent.emit(data)
