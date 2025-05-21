@@ -3,6 +3,7 @@ import serial
 import pyqtgraph as pg
 from pyqtgraph.Qt.QtCore import QTimer, pyqtSignal, pyqtSlot, QObject
 from pyqtgraph.Qt.QtWidgets import QLineEdit, QWidget, QVBoxLayout, QGraphicsProxyWidget
+from PyQt5.QtWidgets import QCompleter
 from typing import List, Optional, Tuple
 from datetime import datetime
 import csv
@@ -10,6 +11,12 @@ import os
 import threading
 import struct
 
+class AutoCompleteLineEdit(QLineEdit):
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        # Showing menu(auto-complete menu) without typing
+        if self.completer():
+            self.completer().complete()
 
 class RealTimePlot(QObject):
     """
@@ -135,7 +142,28 @@ class RealTimePlot(QObject):
 
         self._widget = QWidget()
         self._layout = QVBoxLayout()
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)     
         self._widget.setLayout(self._layout)
+
+        self._line_edit = QLineEdit()
+        # suggestions = ["start", "stop", "reset", "status", "configure"]
+        # completer = QCompleter(suggestions)
+        # completer.setCaseSensitivity(False)
+        # self._line_edit.setCompleter(completer)
+        self._layout.addWidget(self._line_edit)
+        self._line_edit.returnPressed.connect(self.__send_to_servo)
+
+        proxy = QGraphicsProxyWidget()
+        proxy.setWidget(self._widget)
+
+        # Move TextBox to center
+        self._win.addItem(pg.LabelItem(''), row=0, col=0)
+        self._win.addItem(proxy, row=0, col=1)
+        self._win.addItem(pg.LabelItem(''), row=0, col=2)
+
+        # Move cursor to next row
+        self._win.nextRow()
 
         # Enable antialiasing for smoother plot lines
         pg.setConfigOptions(antialias=True)
@@ -208,6 +236,79 @@ class RealTimePlot(QObject):
                 self._curves, self._datas_x, self._datas_y
             ):
                 curve.setData(data_x, data_y)
+
+    @pyqtSlot()
+    def __send_to_servo(self):
+        text = self._line_edit.text() # Get the text from QLineEdit
+        try:
+            # Parse the input text
+            valve_type, id, angle = map(int, text.split(','))
+            data = struct.pack('<Bii', valve_type, id, angle)
+            print(data)
+            self._ser.write(data)
+
+        except ValueError as e:
+            print(f"Invalid input: {e}")
+        finally:
+            self._line_edit.clear()
+    
+    # @pyqtSlot()
+    # def __send_to_servo(self):
+    #     text = self._line_edit.text()  # Get the text from QLineEdit
+    #     try:
+    #         # Parse the input text
+    #         commands = text.split(',')
+    #         for command in commands:
+    #             valve_type, index, value = command.split(':')
+    #             index = int(index)
+    #             if valve_type == "solenoid":
+    #                 if value.lower() == "open":
+    #                     self._valve_states["solenoid_valves"][index] = True
+    #                 elif value.lower() == "close":
+    #                     self._valve_states["solenoid_valves"][index] = False
+    #                 else:
+    #                     raise ValueError("Invalid solenoid valve command")
+    #             elif valve_type == "motor":
+    #                 angle = int(value)
+    #                 if 0 <= angle <= 180:
+    #                     self._valve_states["motor_valves"][index] = angle
+    #                 else:
+    #                     raise ValueError("Invalid motor valve angle")
+    #             else:
+    #                 raise ValueError("Invalid valve type")
+
+    #         # Check for changes and send only the changed states
+    #         changed_solenoids = [
+    #             i for i, (prev, curr) in enumerate(zip(self._prev_valve_states["solenoid_valves"], self._valve_states["solenoid_valves"]))
+    #             if prev != curr
+    #         ]
+    #         changed_motors = [
+    #             i for i, (prev, curr) in enumerate(zip(self._prev_valve_states["motor_valves"], self._valve_states["motor_valves"]))
+    #             if prev != curr
+    #         ]
+
+    #         if changed_solenoids or changed_motors:
+    #             # Prepare data to send
+    #             data_to_send = []
+    #             for i in changed_solenoids:
+    #                 data_to_send.append(f"S{i}:{int(self._valve_states['solenoid_valves'][i])}")
+    #             for i in changed_motors:
+    #                 data_to_send.append(f"M{i}:{self._valve_states['motor_valves'][i]}")
+                
+    #             # Convert to bytes and send to serial port
+    #             data_bytes = ','.join(data_to_send).encode('utf-8')
+    #             self._ser.write(data_bytes)
+
+    #             # Update previous states
+    #             for i in changed_solenoids:
+    #                 self._prev_valve_states["solenoid_valves"][i] = self._valve_states["solenoid_valves"][i]
+    #             for i in changed_motors:
+    #                 self._prev_valve_states["motor_valves"][i] = self._valve_states["motor_valves"][i]
+
+    #     except ValueError as e:
+    #         print(f"Invalid input: {e}")
+    #     finally:
+    #         self._line_edit.clear()
 
     @pyqtSlot()
     def __get_data(self, sep=",") -> None:
@@ -315,5 +416,5 @@ if __name__ == "__main__":
         "TC1 (degC)",
         "TC2 (degC)",
     ]  # list of datas.
-    plotter = RealTimePlot(data_set=datas, port="/dev/tty.usbmodem146659901", update_rate=25, sensor_rate=10)
+    plotter = RealTimePlot(data_set=datas, port="COM3", update_rate=25, sensor_rate=10)
     plotter.run()
